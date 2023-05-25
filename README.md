@@ -12,6 +12,7 @@ ktd-plugin-tools [options]
 
 | Option            | Description                       | Default                                                                    | Shorthand |
 | ----------------- | --------------------------------- | -------------------------------------------------------------------------- | --------- |
+| --env             | Path to environment file          | kpt.env                                                                    |           |
 | --copy            | Enable copy command               | true                                                                       | -c        |
 | --restart         | Enable restart command            | true                                                                       | -r        |
 | --install         | Enable install command            | true                                                                       | -i        |

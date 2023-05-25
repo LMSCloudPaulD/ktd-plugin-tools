@@ -6,8 +6,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"sync"
-	"text/tabwriter"
 
 	"github.com/fatih/color"
 	"github.com/joho/godotenv"
@@ -39,69 +37,63 @@ var (
 func main() {
 	set := &settings{}
 
-	// First, load environment variables
-	err := loadEnvFile(set)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Then, parse flags
-	flag.BoolVar(&set.copyFlagEnabled, "copy", false, "Enable copy command (shorthand: -c)")
-	flag.BoolVar(&set.restartFlagEnabled, "restart", false, "Enable restart command (shorthand: -r)")
-	flag.BoolVar(&set.installFlagEnabled, "install", false, "Enable install command (shorthand: -i)")
-	flag.StringVar(&set.copyCmd, "copy-cmd", set.copyCmd, "Copy command")
-	flag.StringVar(&set.restartCmd, "restart-cmd", set.restartCmd, "Restart command")
-	flag.StringVar(&set.installCmd, "install-cmd", set.installCmd, "Install command")
-	flag.BoolVar(&set.showHelp, "help", false, "Show help (shorthand: -h)")
-	flag.StringVar(&set.envFile, "env", set.envFile, "The path to environment file")
-	flag.BoolVar(&set.quiet, "quiet", false, "Silence all output (shorthand: -q)")
+	// First, parse flags
+	flag.BoolVar(&set.copyFlagEnabled, "copy", false, "Enable copy command")
+	flag.BoolVar(&set.copyFlagEnabled, "c", false, "(shorthand for --copy)")
+	flag.BoolVar(&set.restartFlagEnabled, "restart", false, "Enable restart command")
+	flag.BoolVar(&set.restartFlagEnabled, "r", false, "(shorthand for --restart)")
+	flag.BoolVar(&set.installFlagEnabled, "install", false, "Enable install command")
+	flag.BoolVar(&set.installFlagEnabled, "i", false, "(shorthand for --install)")
+	flag.StringVar(&set.copyCmd, "copy-cmd", "", "Copy command")
+	flag.StringVar(&set.installCmd, "install-cmd", "", "Install command")
+	flag.StringVar(&set.restartCmd, "restart-cmd", "", "Restart command")
+	flag.BoolVar(&set.showHelp, "help", false, "Show help")
+	flag.BoolVar(&set.showHelp, "h", false, "(shorthand for --help)")
+	flag.StringVar(&set.envFile, "env", "kpt.env", "The path to environment file")
+	flag.BoolVar(&set.quiet, "quiet", false, "Silence all output")
+	flag.BoolVar(&set.quiet, "q", false, "(shorthand for --quiet)")
 	flag.Parse()
 
-	// Flag shorthands
-	flag.Visit(func(f *flag.Flag) {
-		if len(f.Name) == 1 {
-			switch f.Name {
-			case "c":
-				set.copyFlagEnabled = true
-			case "r":
-				set.restartFlagEnabled = true
-			case "i":
-				set.installFlagEnabled = true
-			case "h":
-				set.showHelp = true
-			case "q":
-				set.quiet = true
-			}
+	// Check if flags were set
+	flagsWereSet := set.copyCmd != "" || set.restartCmd != "" || set.installCmd != ""
+
+	// Then, load environment variables if the file exists
+	if _, err := os.Stat(set.envFile); !os.IsNotExist(err) {
+		err := loadEnvFile(set, flagsWereSet)
+		if err != nil {
+			log.Fatal(err)
 		}
-	})
+	} else if !flagsWereSet {
+		// If no flags were passed and the env file does not exist, display the help message and exit
+		printHelp()
+		os.Exit(1)
+	}
 
 	if set.showHelp {
 		printHelp()
 		return
 	}
 
-	var wg sync.WaitGroup
-
-	// Execute commands locally
+	// Define the order of execution based on dependencies
+	commands := []string{}
 	if set.copyFlagEnabled {
-		wg.Add(1)
-		go executeIfEnabled(set.copyCmd, set.quiet, &wg)
+		commands = append(commands, set.copyCmd)
 	}
-
 	if set.installFlagEnabled {
-		wg.Add(1)
-		go executeIfEnabled(set.installCmd, set.quiet, &wg)
+		commands = append(commands, set.installCmd)
 	}
-
 	if set.restartFlagEnabled {
-		wg.Add(1)
-		go executeIfEnabled(set.restartCmd, set.quiet, &wg)
+		commands = append(commands, set.restartCmd)
 	}
 
-	wg.Wait()
+	// Execute commands in the defined order
+	for _, cmd := range commands {
+		executeIfEnabled(cmd, set.quiet)
+	}
+
 }
 
-func loadEnvFile(set *settings) error {
+func loadEnvFile(set *settings, flagsWereSet bool) error {
 	// Check if a remote environment file exists and load its values
 	if _, err := os.Stat(set.envFile); os.IsNotExist(err) {
 		return fmt.Errorf("environment file does not exist: %v", set.envFile)
@@ -115,9 +107,17 @@ func loadEnvFile(set *settings) error {
 	}
 
 	// Populate settings from the environment if present
-	set.copyCmd = envOrDefault(env, "COPY_COMMAND", set.copyCmd)
-	set.restartCmd = envOrDefault(env, "RESTART_COMMAND", set.restartCmd)
-	set.installCmd = envOrDefault(env, "INSTALL_COMMAND", set.installCmd)
+	if !flagsWereSet || set.copyCmd == "" {
+		set.copyCmd = envOrDefault(env, "COPY_COMMAND", set.copyCmd)
+	}
+
+	if !flagsWereSet || set.installCmd == "" {
+		set.installCmd = envOrDefault(env, "INSTALL_COMMAND", set.installCmd)
+	}
+
+	if !flagsWereSet || set.restartCmd == "" {
+		set.restartCmd = envOrDefault(env, "RESTART_COMMAND", set.restartCmd)
+	}
 
 	return nil
 }
@@ -129,18 +129,27 @@ func envOrDefault(env map[string]string, key string, fallback string) string {
 	return fallback
 }
 
-func executeIfEnabled(cmd string, quiet bool, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	output, err := exec.Command("bash", "-c", cmd).CombinedOutput()
-	if err != nil {
-		if !quiet {
-			log.Fatalf("Error executing command: %v\nOutput:\n%s\n", err, red(string(output)))
-		}
+func executeIfEnabled(cmd string, quiet bool) {
+	if cmd == "" {
 		return
 	}
-	if len(output) > 0 && !quiet {
-		fmt.Printf("Command output:\n%s\n", green(string(output)))
+
+	if !quiet {
+		fmt.Printf("Executing command: %s\n", blue(cmd))
+	}
+
+	// Execute the command synchronously and wait for its completion
+	cmdParts := []string{"bash", "-c", cmd}
+	execCmd := exec.Command(cmdParts[0], cmdParts[1:]...)
+	execCmd.Stdout = os.Stdout
+	execCmd.Stderr = os.Stderr
+
+	err := execCmd.Run()
+	if err != nil {
+		if !quiet {
+			log.Fatalf("Error executing command: %s\nError: %s\n", cmd, err)
+		}
+		return
 	}
 }
 
@@ -149,7 +158,6 @@ func printHelp() {
 	fmt.Printf("%s\n", white("Usage: ktd-plugin-tools [options]"))
 	fmt.Printf("%s\n", white("Options:"))
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
 	flag.VisitAll(func(f *flag.Flag) {
 		optionLine := fmt.Sprintf("--%s", f.Name)
 		defaultLine := ""
@@ -157,7 +165,6 @@ func printHelp() {
 			defaultLine = fmt.Sprintf("Default: %s", yellow(f.DefValue))
 		}
 		line := fmt.Sprintf("\t%s\t%s\t\t%s", optionLine, f.Usage, defaultLine)
-		fmt.Fprintln(w, line)
+		fmt.Println(line)
 	})
-	w.Flush()
 }
