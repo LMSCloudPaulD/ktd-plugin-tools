@@ -104,7 +104,9 @@ func executeCommand(cmd string) {
 		log.Fatalf("Error executing command: %v\nOutput:\n%s\n", err, red(string(output)))
 		return
 	}
-	fmt.Printf("Command output:\n%s\n", green(string(output)))
+	if len(output) > 0 {
+		fmt.Printf("Command output:\n%s\n", green(string(output)))
+	}
 }
 
 func printHelp() {
