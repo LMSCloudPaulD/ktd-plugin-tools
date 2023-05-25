@@ -11,6 +11,7 @@ require (
 
 require (
 	github.com/fatih/color v1.15.0
+	github.com/joho/godotenv v1.5.1
 	github.com/kevinburke/ssh_config v1.2.0
 	golang.org/x/sys v0.8.0 // indirect
 )

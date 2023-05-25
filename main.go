@@ -2,16 +2,20 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
-	"net"
 	"os"
 	"os/exec"
+	"os/user"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/fatih/color"
+	"github.com/joho/godotenv"
 	"github.com/kevinburke/ssh_config"
 	"golang.org/x/crypto/ssh"
 )
@@ -40,6 +44,7 @@ var (
 	sshConfigHost      string
 	remoteActive       bool
 	showHelp           bool
+	envFile            string
 
 	// Color formatting functions
 	green     = color.New(color.FgGreen).SprintFunc()
@@ -47,11 +52,10 @@ var (
 	blue      = color.New(color.FgBlue).SprintFunc()
 	white     = color.New(color.FgWhite).SprintFunc()
 	yellow    = color.New(color.FgYellow).SprintFunc()
-	red       = color.New(color.FgRed).SprintFunc()
+	// red       = color.New(color.FgRed).SprintFunc()
 )
 
-func init() {
-	// Initialize command-line flags
+func main() {
 	flag.BoolVar(&copyFlagEnabled, "copy", true, "Enable copy command")
 	flag.BoolVar(&restartFlagEnabled, "restart", true, "Enable restart command")
 	flag.BoolVar(&installFlagEnabled, "install", true, "Enable install command")
@@ -65,9 +69,7 @@ func init() {
 	flag.StringVar(&sshConfigHost, "ssh-config-host", "", "The SSH host from SSH config file")
 	flag.BoolVar(&remoteActive, "remote", false, "Execute command remotely")
 	flag.BoolVar(&showHelp, "help", false, "Show help")
-}
-
-func main() {
+	flag.StringVar(&envFile, "env", "remote.env", "The path to environment file")
 	flag.Parse()
 
 	if showHelp {
@@ -76,56 +78,10 @@ func main() {
 	}
 
 	// Check if a remote environment file exists and load its values
-	if _, err := os.Stat("remote.env"); err == nil {
-		file, err := os.Open("remote.env")
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer file.Close()
+	err := loadEnvFile(envFile)
 
-		scanner := bufio.NewScanner(file)
-		for scanner.Scan() {
-			line := scanner.Text()
-			parts := strings.SplitN(line, "=", 2)
-			if len(parts) == 2 {
-				key := parts[0]
-				value := parts[1]
-				switch key {
-				case "REMOTE_SSH_HOST":
-					if sshHost == "" {
-						sshHost = value
-					}
-				case "REMOTE_SSH_PORT":
-					if sshPort == "22" {
-						sshPort = value
-					}
-				case "REMOTE_USER":
-					if username == "" {
-						username = value
-					}
-				case "REMOTE_ACTIVE":
-					if !remoteActive {
-						remoteActive = value == "true"
-					}
-				case "COPY_CMD":
-					if copyCmd == "docker cp Koha koha-koha-1:/var/lib/koha/kohadev/plugins/" {
-						copyCmd = value
-					}
-				case "RESTART_CMD":
-					if restartCmd == "docker exec -ti koha-koha-1 bash -c 'koha-plack --restart kohadev'" {
-						restartCmd = value
-					}
-				case "INSTALL_CMD":
-					if installCmd == "docker exec -ti koha-koha-1 /kohadevbox/koha/misc/devel/install_plugins.pl" {
-						installCmd = value
-					}
-				}
-			}
-		}
-
-		if err := scanner.Err(); err != nil {
-			log.Fatal(err)
-		}
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	if sshConfigHost != "" {
@@ -137,17 +93,27 @@ func main() {
 		sshHost = sshConfig.HostName
 		username = sshConfig.User
 		sshPort = sshConfig.Port
-		// Override private key path with default path for the user
-		privateKey = fmt.Sprintf("/home/%s/.ssh/id_rsa", username)
+		privateKey = sshConfig.IdentityFile
 	}
 
 	if remoteActive {
 		// Execute commands remotely
 		if sshHost != "" && username != "" && privateKey != "" {
 			if copyFlagEnabled {
-				err := executeSSHCommand(sshHost, username, privateKey, copyCmd)
+				// First, copy the file to the remote host
+				err := scpFileToRemote(sshHost, username, privateKey, "Koha", "/tmp/Koha")
 				if err != nil {
-					log.Fatalf("Error executing copy command: %v", err)
+					log.Fatalf("Error copying file to remote host: %v", err)
+				}
+
+				// Modify the copyCmd to be consistent with local execution
+				copyCmd = "docker cp /tmp/Koha koha-koha-1:/var/lib/koha/kohadev/plugins/"
+
+				if copyCmd != "" {
+					err := executeSSHCommand(sshHost, username, privateKey, copyCmd)
+					if err != nil {
+						log.Fatalf("Error executing copy command: %v", err)
+					}
 				}
 			}
 
@@ -189,6 +155,80 @@ func main() {
 	}
 }
 
+func expandHomeDir(path string) (string, error) {
+	if !strings.HasPrefix(path, "~") {
+		return path, nil
+	}
+	usr, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+	return strings.Replace(path, "~", usr.HomeDir, 1), nil
+}
+
+func loadEnvFile(file string) error {
+	// Check if a remote environment file exists and load its values
+	if _, err := os.Stat(file); err == nil {
+		env, err := godotenv.Read(file)
+		if err != nil {
+			return fmt.Errorf("unable to read environment file: %v", err)
+		}
+
+		// Populate global variables from the environment if present
+		sshHost = env["REMOTE_SSH_HOST"]
+		sshPort = env["REMOTE_SSH_PORT"]
+		username = env["REMOTE_SSH_USER"]
+		privateKey = env["REMOTE_SSH_KEY_PATH"]
+		sshConfigHost = env["REMOTE_SSH_CONF"]
+		copyCmd = env["COPY_COMMAND"]
+		restartCmd = env["RESTART_COMMAND"]
+		installCmd = env["INSTALL_COMMAND"]
+
+	} else {
+		return fmt.Errorf("environment file does not exist: %v", file)
+	}
+	return nil
+}
+
+func getHostKey(host string) (ssh.PublicKey, error) {
+	userHomeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("cannot get user home directory: %w", err)
+	}
+	knownHostsPath := filepath.Join(userHomeDir, ".ssh", "known_hosts")
+
+	file, err := os.Open(knownHostsPath)
+	if err != nil {
+		return nil, fmt.Errorf("cannot open known_hosts file: %w", err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	var hostKey ssh.PublicKey
+	for scanner.Scan() {
+		fields := strings.Split(scanner.Text(), " ")
+		if len(fields) != 3 {
+			continue
+		}
+
+		if strings.Contains(fields[0], host) {
+			keyBytes := []byte(fields[1] + " " + fields[2])
+			hostKey, _, _, _, err = ssh.ParseAuthorizedKey(keyBytes)
+			if err != nil {
+				return nil, fmt.Errorf("error parsing host key for %q: %v", host, err)
+			}
+			fmt.Printf("Found key for host %s: %s\n", host, ssh.FingerprintSHA256(hostKey))
+			break
+		}
+	}
+
+	if hostKey == nil {
+		return nil, errors.New("no hostkey found for " + host)
+	}
+
+	return hostKey, nil
+}
+
 func executeSSHCommand(host string, username string, keyPath string, command string) error {
 	key, err := os.ReadFile(keyPath)
 	if err != nil {
@@ -201,14 +241,18 @@ func executeSSHCommand(host string, username string, keyPath string, command str
 		return fmt.Errorf("unable to parse private key: %v", err)
 	}
 
+	// Code for host key verification
+	hostKey, err := getHostKey(host)
+	if err != nil {
+		return err
+	}
+
 	config := &ssh.ClientConfig{
 		User: username,
 		Auth: []ssh.AuthMethod{
 			ssh.PublicKeys(signer),
 		},
-		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-			return nil
-		},
+		HostKeyCallback: ssh.FixedHostKey(hostKey),
 	}
 
 	// Connect to the SSH server.
@@ -237,13 +281,13 @@ func executeSSHCommand(host string, username string, keyPath string, command str
 	return nil
 }
 
-func executeLocalCommand(cmd string) {
+func executeLocalCommand(cmd string) (string, error) {
 	fmt.Printf("Executing command: %s\n", blue(cmd))
 	output, err := exec.Command("bash", "-c", cmd).CombinedOutput()
 	if err != nil {
-		log.Fatalf("Failed to execute command: %s, error: %v", red(cmd), err)
+		return "", fmt.Errorf("failed to execute command: %v", err)
 	}
-	fmt.Printf("Command output:\n%s\n", green(output))
+	return string(output), nil
 }
 
 func GetSSHConfig(host string) (*SSHConfig, error) {
@@ -262,9 +306,21 @@ func GetSSHConfig(host string) (*SSHConfig, error) {
 		return nil, fmt.Errorf("port not found in SSH config for host: %s", host)
 	}
 
-	identityFile := ssh_config.Get(host, "IdentityFile")
-	if identityFile == "" {
-		identityFile = fmt.Sprintf("/home/%s/.ssh/id_rsa", user)
+	identityFiles := ssh_config.GetAll(host, "IdentityFile")
+	var identityFile string
+	if len(identityFiles) == 0 {
+		if runtime.GOOS == "darwin" {
+			identityFile = fmt.Sprintf("/Users/%s/.ssh/id_rsa", user)
+		} else {
+			identityFile = fmt.Sprintf("/home/%s/.ssh/id_rsa", user)
+		}
+	} else {
+		identityFile = identityFiles[0]
+		expandedIdentityFile, err := expandHomeDir(identityFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to expand home directory in identity file path: %v", err)
+		}
+		identityFile = expandedIdentityFile
 	}
 
 	return &SSHConfig{
@@ -274,6 +330,23 @@ func GetSSHConfig(host string) (*SSHConfig, error) {
 		Port:         port,
 		IdentityFile: identityFile,
 	}, nil
+}
+
+func scpFileToRemote(host string, username string, keyPath string, localFilePath string, remoteFilePath string) error {
+	var cmd string
+	fileInfo, err := os.Stat(localFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to get file information: %v", err)
+	}
+
+	if fileInfo.IsDir() {
+		cmd = fmt.Sprintf("scp -r -i %s %s %s@%s:%s", keyPath, localFilePath, username, host, remoteFilePath)
+	} else {
+		cmd = fmt.Sprintf("scp -i %s %s %s@%s:%s", keyPath, localFilePath, username, host, remoteFilePath)
+	}
+
+	executeLocalCommand(cmd)
+	return nil
 }
 
 func printHelp() {
