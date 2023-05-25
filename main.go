@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"sync"
 	"text/tabwriter"
 
 	"github.com/fatih/color"
@@ -13,7 +14,7 @@ import (
 )
 
 // Define flag variables
-var (
+type settings struct {
 	copyFlagEnabled    bool
 	restartFlagEnabled bool
 	installFlagEnabled bool
@@ -22,89 +23,123 @@ var (
 	installCmd         string
 	showHelp           bool
 	envFile            string
+	quiet              bool
+}
 
-	// Color formatting functions
+// Color formatting functions
+var (
 	green     = color.New(color.FgGreen).SprintFunc()
 	boldGreen = color.New(color.FgGreen, color.Bold).SprintFunc()
 	blue      = color.New(color.FgBlue).SprintFunc()
 	white     = color.New(color.FgWhite).SprintFunc()
 	yellow    = color.New(color.FgYellow).SprintFunc()
-	red = color.New(color.FgRed).SprintFunc()
+	red       = color.New(color.FgRed).SprintFunc()
 )
 
 func main() {
-	flag.BoolVar(&copyFlagEnabled, "copy", true, "Enable copy command")
-	flag.BoolVar(&restartFlagEnabled, "restart", true, "Enable restart command")
-	flag.BoolVar(&installFlagEnabled, "install", true, "Enable install command")
-	flag.StringVar(&copyCmd, "copy-cmd", "docker cp Koha koha-koha-1:/var/lib/koha/kohadev/plugins/", "Copy command")
-	flag.StringVar(&restartCmd, "restart-cmd", "docker exec -ti koha-koha-1 bash -c 'koha-plack --restart kohadev'", "Restart command")
-	flag.StringVar(&installCmd, "install-cmd", "docker exec -ti koha-koha-1 /kohadevbox/koha/misc/devel/install_plugins.pl", "Install command")
-	flag.BoolVar(&showHelp, "help", false, "Show help")
-	flag.StringVar(&envFile, "env", "kpt.env", "The path to environment file")
-	flag.Parse()
+	set := &settings{}
 
-	if showHelp {
-		printHelp()
-		return
-	}
-
-	// Check if a remote environment file exists and load its values
-	err := loadEnvFile(envFile)
-
+	// First, load environment variables
+	err := loadEnvFile(set)
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	// Then, parse flags
+	flag.BoolVar(&set.copyFlagEnabled, "copy", false, "Enable copy command (shorthand: -c)")
+	flag.BoolVar(&set.restartFlagEnabled, "restart", false, "Enable restart command (shorthand: -r)")
+	flag.BoolVar(&set.installFlagEnabled, "install", false, "Enable install command (shorthand: -i)")
+	flag.StringVar(&set.copyCmd, "copy-cmd", set.copyCmd, "Copy command")
+	flag.StringVar(&set.restartCmd, "restart-cmd", set.restartCmd, "Restart command")
+	flag.StringVar(&set.installCmd, "install-cmd", set.installCmd, "Install command")
+	flag.BoolVar(&set.showHelp, "help", false, "Show help (shorthand: -h)")
+	flag.StringVar(&set.envFile, "env", set.envFile, "The path to environment file")
+	flag.BoolVar(&set.quiet, "quiet", false, "Silence all output (shorthand: -q)")
+	flag.Parse()
+
+	// Flag shorthands
+	flag.Visit(func(f *flag.Flag) {
+		if len(f.Name) == 1 {
+			switch f.Name {
+			case "c":
+				set.copyFlagEnabled = true
+			case "r":
+				set.restartFlagEnabled = true
+			case "i":
+				set.installFlagEnabled = true
+			case "h":
+				set.showHelp = true
+			case "q":
+				set.quiet = true
+			}
+		}
+	})
+
+	if set.showHelp {
+		printHelp()
+		return
+	}
+
+	var wg sync.WaitGroup
+
 	// Execute commands locally
-	if copyFlagEnabled {
-		if copyCmd != "" {
-			executeCommand(copyCmd)
-		}
+	if set.copyFlagEnabled {
+		wg.Add(1)
+		go executeIfEnabled(set.copyCmd, set.quiet, &wg)
 	}
 
-	if installFlagEnabled {
-		if installCmd != "" {
-			executeCommand(installCmd)
-		}
+	if set.installFlagEnabled {
+		wg.Add(1)
+		go executeIfEnabled(set.installCmd, set.quiet, &wg)
 	}
 
-	if restartFlagEnabled {
-		if restartCmd != "" {
-			executeCommand(restartCmd)
-		}
+	if set.restartFlagEnabled {
+		wg.Add(1)
+		go executeIfEnabled(set.restartCmd, set.quiet, &wg)
 	}
+
+	wg.Wait()
 }
 
-func loadEnvFile(file string) error {
+func loadEnvFile(set *settings) error {
 	// Check if a remote environment file exists and load its values
-	if _, err := os.Stat(file); os.IsNotExist(err) {
-		return fmt.Errorf("environment file does not exist: %v", file)
+	if _, err := os.Stat(set.envFile); os.IsNotExist(err) {
+		return fmt.Errorf("environment file does not exist: %v", set.envFile)
 	} else if err != nil {
 		return fmt.Errorf("error checking environment file: %v", err)
 	}
-	
-	env, err := godotenv.Read(file)
+
+	env, err := godotenv.Read(set.envFile)
 	if err != nil {
 		return fmt.Errorf("unable to read environment file: %v", err)
 	}
 
-	// Populate global variables from the environment if present
-	copyCmd = env["COPY_COMMAND"]
-	restartCmd = env["RESTART_COMMAND"]
-	installCmd = env["INSTALL_COMMAND"]
+	// Populate settings from the environment if present
+	set.copyCmd = envOrDefault(env, "COPY_COMMAND", set.copyCmd)
+	set.restartCmd = envOrDefault(env, "RESTART_COMMAND", set.restartCmd)
+	set.installCmd = envOrDefault(env, "INSTALL_COMMAND", set.installCmd)
 
 	return nil
 }
 
+func envOrDefault(env map[string]string, key string, fallback string) string {
+	if value, exists := env[key]; exists {
+		return value
+	}
+	return fallback
+}
 
-func executeCommand(cmd string) {
-	fmt.Printf("Executing command: %s\n", blue(cmd))
+func executeIfEnabled(cmd string, quiet bool, wg *sync.WaitGroup) {
+	defer wg.Done()
+
 	output, err := exec.Command("bash", "-c", cmd).CombinedOutput()
 	if err != nil {
-		log.Fatalf("Error executing command: %v\nOutput:\n%s\n", err, red(string(output)))
+		if !quiet {
+			log.Fatalf("Error executing command: %v\nOutput:\n%s\n", err, red(string(output)))
+		}
 		return
 	}
-	if len(output) > 0 {
+	if len(output) > 0 && !quiet {
 		fmt.Printf("Command output:\n%s\n", green(string(output)))
 	}
 }
