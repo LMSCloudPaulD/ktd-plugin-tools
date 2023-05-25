@@ -16,6 +16,7 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+// SSHConfig represents the SSH configuration parameters.
 type SSHConfig struct {
 	Host         string
 	HostName     string
@@ -24,6 +25,7 @@ type SSHConfig struct {
 	IdentityFile string
 }
 
+// Define flag variables
 var (
 	copyFlagEnabled    bool
 	restartFlagEnabled bool
@@ -39,6 +41,7 @@ var (
 	remoteActive       bool
 	showHelp           bool
 
+	// Color formatting functions
 	green     = color.New(color.FgGreen).SprintFunc()
 	boldGreen = color.New(color.FgGreen, color.Bold).SprintFunc()
 	blue      = color.New(color.FgBlue).SprintFunc()
@@ -48,6 +51,7 @@ var (
 )
 
 func init() {
+	// Initialize command-line flags
 	flag.BoolVar(&copyFlagEnabled, "copy", true, "Enable copy command")
 	flag.BoolVar(&restartFlagEnabled, "restart", true, "Enable restart command")
 	flag.BoolVar(&installFlagEnabled, "install", true, "Enable install command")
@@ -71,6 +75,7 @@ func main() {
 		return
 	}
 
+	// Check if a remote environment file exists and load its values
 	if _, err := os.Stat("remote.env"); err == nil {
 		file, err := os.Open("remote.env")
 		if err != nil {
@@ -124,6 +129,7 @@ func main() {
 	}
 
 	if sshConfigHost != "" {
+		// Get SSH configuration from the SSH config file
 		sshConfig, err := GetSSHConfig(sshConfigHost)
 		if err != nil {
 			log.Fatalf("Error getting SSH config: %v", err)
@@ -136,6 +142,7 @@ func main() {
 	}
 
 	if remoteActive {
+		// Execute commands remotely
 		if sshHost != "" && username != "" && privateKey != "" {
 			if copyFlagEnabled {
 				err := executeSSHCommand(sshHost, username, privateKey, copyCmd)
@@ -161,6 +168,7 @@ func main() {
 			log.Fatal("SSH host, username, and private key must be provided for remote operation")
 		}
 	} else {
+		// Execute commands locally
 		if copyFlagEnabled {
 			if copyCmd != "" {
 				executeLocalCommand(copyCmd)
@@ -214,13 +222,17 @@ func executeSSHCommand(host string, username string, keyPath string, command str
 	if err != nil {
 		return fmt.Errorf("failed to create session: %v", err)
 	}
+	defer session.Close()
 
 	// Once a Session is created, you can execute a single command on
 	// the remote side using the Run method.
-	_, err = session.CombinedOutput(command)
+	output, err := session.CombinedOutput(command)
 	if err != nil {
 		return fmt.Errorf("failed to execute command: %v", err)
 	}
+
+	// Print the output of the executed command
+	fmt.Printf("Command output:\n%s\n", green(output))
 
 	return nil
 }
@@ -262,7 +274,6 @@ func GetSSHConfig(host string) (*SSHConfig, error) {
 		Port:         port,
 		IdentityFile: identityFile,
 	}, nil
-
 }
 
 func printHelp() {
