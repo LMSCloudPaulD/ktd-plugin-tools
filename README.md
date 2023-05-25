@@ -68,7 +68,7 @@ The `printHelp` function prints the help information.
 
 ## Dependencies
 
-- github.com/fatih/color
-- github.com/kevinburke/ssh_config
-- golang.org/x/crypto/ssh
+- [github.com/fatih/color](https://github.com/fatih/color)
+- [github.com/kevinburke/ssh_config](https://github.com/kevinburke/ssh_config)
+- [golang.org/x/crypto/ssh](https://golang.org/x/crypto/ssh)
 
