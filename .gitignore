@@ -19,6 +19,3 @@
 
 # Go workspace file
 go.work
-
-# Binaries should be disseminated via github releases
-ktd-plugin-tools
