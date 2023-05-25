@@ -29,6 +29,7 @@ var (
 	blue      = color.New(color.FgBlue).SprintFunc()
 	white     = color.New(color.FgWhite).SprintFunc()
 	yellow    = color.New(color.FgYellow).SprintFunc()
+	red = color.New(color.FgRed).SprintFunc()
 )
 
 func main() {
@@ -76,30 +77,34 @@ func main() {
 
 func loadEnvFile(file string) error {
 	// Check if a remote environment file exists and load its values
-	if _, err := os.Stat(file); err == nil {
-		env, err := godotenv.Read(file)
-		if err != nil {
-			return fmt.Errorf("unable to read environment file: %v", err)
-		}
-
-		// Populate global variables from the environment if present
-		copyCmd = env["COPY_COMMAND"]
-		restartCmd = env["RESTART_COMMAND"]
-		installCmd = env["INSTALL_COMMAND"]
-
-	} else {
+	if _, err := os.Stat(file); os.IsNotExist(err) {
 		return fmt.Errorf("environment file does not exist: %v", file)
+	} else if err != nil {
+		return fmt.Errorf("error checking environment file: %v", err)
 	}
+	
+	env, err := godotenv.Read(file)
+	if err != nil {
+		return fmt.Errorf("unable to read environment file: %v", err)
+	}
+
+	// Populate global variables from the environment if present
+	copyCmd = env["COPY_COMMAND"]
+	restartCmd = env["RESTART_COMMAND"]
+	installCmd = env["INSTALL_COMMAND"]
+
 	return nil
 }
+
 
 func executeCommand(cmd string) {
 	fmt.Printf("Executing command: %s\n", blue(cmd))
 	output, err := exec.Command("bash", "-c", cmd).CombinedOutput()
 	if err != nil {
-		log.Fatalf("Error executing command: %v", err)
+		log.Fatalf("Error executing command: %v\nOutput:\n%s\n", err, red(string(output)))
+		return
 	}
-	fmt.Printf("Command output:\n%s\n", green(output))
+	fmt.Printf("Command output:\n%s\n", green(string(output)))
 }
 
 func printHelp() {
