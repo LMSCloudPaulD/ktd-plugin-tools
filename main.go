@@ -26,12 +26,12 @@ type settings struct {
 
 // Color formatting functions
 var (
-	green     = color.New(color.FgGreen).SprintFunc()
+	// green     = color.New(color.FgGreen).SprintFunc()
 	boldGreen = color.New(color.FgGreen, color.Bold).SprintFunc()
 	blue      = color.New(color.FgBlue).SprintFunc()
 	white     = color.New(color.FgWhite).SprintFunc()
 	yellow    = color.New(color.FgYellow).SprintFunc()
-	red       = color.New(color.FgRed).SprintFunc()
+	// red       = color.New(color.FgRed).SprintFunc()
 )
 
 func main() {
