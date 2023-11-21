@@ -1,121 +1,103 @@
 package main
 
 import (
-	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
-	"text/tabwriter"
 
-	"github.com/fatih/color"
-	"github.com/joho/godotenv"
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
-// Define flag variables
-var (
-	copyFlagEnabled    bool
-	restartFlagEnabled bool
-	installFlagEnabled bool
-	copyCmd            string
-	restartCmd         string
-	installCmd         string
-	showHelp           bool
-	envFile            string
+type Config struct {
+	CopyCmd    string
+	InstallCmd string
+	RestartCmd string
+}
 
-	// Color formatting functions
-	green     = color.New(color.FgGreen).SprintFunc()
-	boldGreen = color.New(color.FgGreen, color.Bold).SprintFunc()
-	blue      = color.New(color.FgBlue).SprintFunc()
-	white     = color.New(color.FgWhite).SprintFunc()
-	yellow    = color.New(color.FgYellow).SprintFunc()
-)
+type Flags struct {
+	Copy    bool
+	Install bool
+	Restart bool
+}
 
 func main() {
-	flag.BoolVar(&copyFlagEnabled, "copy", true, "Enable copy command")
-	flag.BoolVar(&restartFlagEnabled, "restart", true, "Enable restart command")
-	flag.BoolVar(&installFlagEnabled, "install", true, "Enable install command")
-	flag.StringVar(&copyCmd, "copy-cmd", "docker cp Koha koha-koha-1:/var/lib/koha/kohadev/plugins/", "Copy command")
-	flag.StringVar(&restartCmd, "restart-cmd", "docker exec -ti koha-koha-1 bash -c 'koha-plack --restart kohadev'", "Restart command")
-	flag.StringVar(&installCmd, "install-cmd", "docker exec -ti koha-koha-1 /kohadevbox/koha/misc/devel/install_plugins.pl", "Install command")
-	flag.BoolVar(&showHelp, "help", false, "Show help")
-	flag.StringVar(&envFile, "env", "kpt.env", "The path to environment file")
-	flag.Parse()
+	var config Config
+	var flags Flags
 
-	if showHelp {
-		printHelp()
-		return
+	rootCmd := &cobra.Command{
+		Use:   "koha-plugin-tools",
+		Short: "A helper for Koha plugin development with koha-testing-docker",
 	}
 
-	// Check if a remote environment file exists and load its values
-	err := loadEnvFile(envFile)
-
-	if err != nil {
-		log.Fatal(err)
+	deployCmd := &cobra.Command{
+		Use:   "deploy",
+		Short: "Deploy commands",
+		Run: func(cmd *cobra.Command, args []string) {
+			if err := deploy(config, flags); err != nil {
+				fmt.Printf("Error deploying: %v\n", err)
+				os.Exit(1)
+			}
+		},
 	}
 
-	// Execute commands locally
-	if copyFlagEnabled {
-		if copyCmd != "" {
-			executeCommand(copyCmd)
+	rootCmd.AddCommand(deployCmd)
+	deployCmd.Flags().BoolVarP(&flags.Copy, "copy", "c", false, "Enable copy command")
+	deployCmd.Flags().BoolVarP(&flags.Install, "install", "i", false, "Enable install command")
+	deployCmd.Flags().BoolVarP(&flags.Restart, "restart", "r", false, "Enable restart command")
+
+	cobra.OnInitialize(func() {
+		if err := initConfig(&config); err != nil {
+			fmt.Printf("Error initializing config: %v\n", err)
+			os.Exit(1)
 		}
-	}
+	})
 
-	if installFlagEnabled {
-		if installCmd != "" {
-			executeCommand(installCmd)
-		}
-	}
-
-	if restartFlagEnabled {
-		if restartCmd != "" {
-			executeCommand(restartCmd)
-		}
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 }
 
-func loadEnvFile(file string) error {
-	// Check if a remote environment file exists and load its values
-	if _, err := os.Stat(file); err == nil {
-		env, err := godotenv.Read(file)
-		if err != nil {
-			return fmt.Errorf("unable to read environment file: %v", err)
+func deploy(config Config, flags Flags) error {
+	if flags.Copy {
+		if err := executeCommand(config.CopyCmd); err != nil {
+			return fmt.Errorf("Error executing copy command: %w", err)
 		}
-
-		// Populate global variables from the environment if present
-		copyCmd = env["COPY_COMMAND"]
-		restartCmd = env["RESTART_COMMAND"]
-		installCmd = env["INSTALL_COMMAND"]
-
-	} else {
-		return fmt.Errorf("environment file does not exist: %v", file)
+	}
+	if flags.Install {
+		if err := executeCommand(config.InstallCmd); err != nil {
+			return fmt.Errorf("Error executing install command: %w", err)
+		}
+	}
+	if flags.Restart {
+		if err := executeCommand(config.RestartCmd); err != nil {
+			return fmt.Errorf("Error executing restart command: %w", err)
+		}
 	}
 	return nil
 }
 
-func executeCommand(cmd string) {
-	fmt.Printf("Executing command: %s\n", blue(cmd))
-	output, err := exec.Command("bash", "-c", cmd).CombinedOutput()
+func executeCommand(cmd string) error {
+	fmt.Printf("Executing command: %s\n", cmd)
+
+	out, err := exec.Command("bash", "-c", cmd).CombinedOutput()
 	if err != nil {
-		log.Fatalf("Error executing command: %v", err)
+		return fmt.Errorf("Error executing command: %v\nOutput was: %s", err, out)
 	}
-	fmt.Printf("Command output:\n%s\n", green(output))
+	fmt.Printf("Command output:\n%s\n", out)
+	return nil
 }
 
-func printHelp() {
-	fmt.Printf("%s\n", boldGreen("ktd-plugin-tools - A helper for Koha plugin development with koha-testing-docker"))
-	fmt.Printf("%s\n", white("Usage: ktd-plugin-tools [options]"))
-	fmt.Printf("%s\n", white("Options:"))
+func initConfig(config *Config) error {
+	viper.SetConfigName("deploy") // name of config file (without extension)
+	viper.AddConfigPath(".")      // look for config in the working directory
+	if err := viper.ReadInConfig(); err != nil {
+		return fmt.Errorf("Error reading config file: %w", err)
+	}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	flag.VisitAll(func(f *flag.Flag) {
-		optionLine := fmt.Sprintf("--%s", f.Name)
-		defaultLine := ""
-		if f.DefValue != "" {
-			defaultLine = fmt.Sprintf("Default: %s", yellow(f.DefValue))
-		}
-		line := fmt.Sprintf("\t%s\t%s\t\t%s", optionLine, f.Usage, defaultLine)
-		fmt.Fprintln(w, line)
-	})
-	w.Flush()
+	config.CopyCmd = viper.GetString("copyCmd")
+	config.InstallCmd = viper.GetString("installCmd")
+	config.RestartCmd = viper.GetString("restartCmd")
+	return nil
 }
