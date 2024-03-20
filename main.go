@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/LMSCloudPaulD/ktd-plugin-tools/pkg/versioning"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -41,10 +42,24 @@ func main() {
 		},
 	}
 
+	versionCmd := &cobra.Command{
+		Use:   "bump {major, minor, patch}",
+		Short: "Increment version",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			if err := bump(args); err != nil {
+				fmt.Printf("Error bumping: %v\n", err)
+				os.Exit(1)
+			}
+		},
+	}
+
 	rootCmd.AddCommand(deployCmd)
 	deployCmd.Flags().BoolVarP(&flags.Copy, "copy", "c", false, "Enable copy command")
 	deployCmd.Flags().BoolVarP(&flags.Install, "install", "i", false, "Enable install command")
 	deployCmd.Flags().BoolVarP(&flags.Restart, "restart", "r", false, "Enable restart command")
+
+	rootCmd.AddCommand(versionCmd)
 
 	cobra.OnInitialize(func() {
 		if err := initConfig(&config); err != nil {
@@ -75,6 +90,27 @@ func deploy(config Config, flags Flags) error {
 			return fmt.Errorf("Error executing restart command: %w", err)
 		}
 	}
+	return nil
+}
+
+func bump(args []string) error {
+	updateType := args[0]
+
+	packageData, err := versioning.ReadFile("package.json")
+	if err != nil {
+		return fmt.Errorf("Error reading package.json: %w", err)
+	}
+
+	err = versioning.UpdateVersion(packageData, updateType)
+	if err != nil {
+		return fmt.Errorf("Error bumping version: %w", err)
+	}
+
+	err = versioning.WriteFile("package.json", packageData)
+	if err != nil {
+		return fmt.Errorf("Error writing to package.json: %w", err)
+	}
+
 	return nil
 }
 
