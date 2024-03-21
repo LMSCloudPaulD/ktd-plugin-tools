@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/LMSCloudPaulD/ktd-plugin-tools/pkg/archiving"
 	"github.com/LMSCloudPaulD/ktd-plugin-tools/pkg/versioning"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -54,6 +55,18 @@ func main() {
 		},
 	}
 
+	archiveCmd := &cobra.Command{
+		Use:   "archive",
+		Short: "Archive all but the latest kpz bundle in a dir",
+		Args:  cobra.NoArgs,
+		Run: func(cmd *cobra.Command, args []string) {
+			if err := archive(); err != nil {
+				fmt.Printf("Error archiving: %v\n", err)
+				os.Exit(1)
+			}
+		},
+	}
+
 	rootCmd.AddCommand(deployCmd)
 	deployCmd.Flags().BoolVarP(&flags.Copy, "copy", "c", false, "Enable copy command")
 	deployCmd.Flags().BoolVarP(&flags.Install, "install", "i", false, "Enable install command")
@@ -61,12 +74,7 @@ func main() {
 
 	rootCmd.AddCommand(versionCmd)
 
-	cobra.OnInitialize(func() {
-		if err := initConfig(&config); err != nil {
-			fmt.Printf("Error initializing config: %v\n", err)
-			os.Exit(1)
-		}
-	})
+	rootCmd.AddCommand(archiveCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -75,6 +83,10 @@ func main() {
 }
 
 func deploy(config Config, flags Flags) error {
+	if err := initConfig(&config); err != nil {
+		return fmt.Errorf("Error initializing config: %w", err)
+	}
+
 	if flags.Copy {
 		if err := executeCommand(config.CopyCmd); err != nil {
 			return fmt.Errorf("Error executing copy command: %w", err)
@@ -96,19 +108,20 @@ func deploy(config Config, flags Flags) error {
 func bump(args []string) error {
 	updateType := args[0]
 
-	packageData, err := versioning.ReadFile("package.json")
+	manager := &versioning.VersionManager{}
+	err := manager.BumpVersion("package.json", updateType)
 	if err != nil {
-		return fmt.Errorf("Error reading package.json: %w", err)
+		return fmt.Errorf("Error during version bump: %w", err)
 	}
 
-	err = versioning.UpdateVersion(packageData, updateType)
-	if err != nil {
-		return fmt.Errorf("Error bumping version: %w", err)
-	}
+	return nil
+}
 
-	err = versioning.WriteFile("package.json", packageData)
+func archive() error {
+	archiver := &archiving.Archiver{}
+	err := archiver.ArchiveFiles(`-v(\d+\.\d+\.\d+)\.kpz`, "archive")
 	if err != nil {
-		return fmt.Errorf("Error writing to package.json: %w", err)
+		return fmt.Errorf("Error archiving files: %w", err)
 	}
 
 	return nil
