@@ -97,6 +97,9 @@ func writeFile(filename string, packageData *packageJSON) error {
 
 	var existingJSON map[string]interface{}
 	err = json.Unmarshal(existingData, &existingJSON)
+	if err != nil {
+		return err
+	}
 
 	existingJSON["version"] = packageData.Version
 	existingJSON["previous_version"] = packageData.PreviousVersion
