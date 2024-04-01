@@ -6,6 +6,7 @@ import (
 	"os/exec"
 
 	"github.com/LMSCloudPaulD/ktd-plugin-tools/pkg/archiving"
+	pluginfinder "github.com/LMSCloudPaulD/ktd-plugin-tools/pkg/meta"
 	"github.com/LMSCloudPaulD/ktd-plugin-tools/pkg/versioning"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -67,6 +68,18 @@ func main() {
 		},
 	}
 
+	metaCmd := &cobra.Command{
+		Use:   "meta",
+		Short: "Show project meta data in a format of your choice.",
+		Args:  cobra.NoArgs,
+		Run: func(cmd *cobra.Command, args []string) {
+			if err := meta(); err != nil {
+				fmt.Printf("Error showing meta: %v\n", err)
+				os.Exit(1)
+			}
+		},
+	}
+
 	rootCmd.AddCommand(deployCmd)
 	deployCmd.Flags().BoolVarP(&flags.Copy, "copy", "c", false, "Enable copy command")
 	deployCmd.Flags().BoolVarP(&flags.Install, "install", "i", false, "Enable install command")
@@ -75,6 +88,8 @@ func main() {
 	rootCmd.AddCommand(versionCmd)
 
 	rootCmd.AddCommand(archiveCmd)
+
+	rootCmd.AddCommand(metaCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -123,6 +138,18 @@ func archive() error {
 	if err != nil {
 		return fmt.Errorf("Error archiving files: %w", err)
 	}
+
+	return nil
+}
+
+func meta() error {
+	pluginFinder := &pluginfinder.PluginFinder{}
+	pluginMetadata, err := pluginFinder.Find(".")
+	if err != nil {
+		return fmt.Errorf("Error finding plugin: %w", err)
+	}
+
+	fmt.Printf("plugin module path\t%s\nkoha directory\t%s\n", pluginMetadata.PluginModulePath, pluginMetadata.KohaDirectory)
 
 	return nil
 }
