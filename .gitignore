@@ -22,3 +22,6 @@ go.work
 
 # Binaries should be disseminated via github releases
 ktd-plugin-tools
+
+# Reference repo from bywater
+dev-koha-plugin-kitchen-sink
