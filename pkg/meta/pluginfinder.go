@@ -15,7 +15,8 @@ type PluginInfo struct {
 }
 
 type KohaPluginMetadata struct {
-	PluginModulePath string `json:"pmFile"`
+	PluginModulePath string `json:"pmFilePath"`
+	PluginModuleFile string `json:"pmFileName"`
 	KohaDirectory    string `json:"kohaDirectory"`
 }
 
@@ -108,24 +109,26 @@ func RecursiveDirSearch(dirPath string, callback func(dirPath, itemName string) 
 func findPluginPath(dirPath string) (*PluginInfo, error) {
 	callback := func(dirPath, itemName string) (interface{}, error) {
 		if strings.HasSuffix(itemName, ".pm") {
-			return &PluginInfo{
-				FileName: itemName,
-				FilePath: dirPath,
-			}, nil
+			baseName := strings.TrimSuffix(itemName, ".pm")
+			potentialPluginDir := filepath.Join(dirPath, baseName)
+
+			if info, err := os.Stat(potentialPluginDir); err == nil && info.IsDir() {
+				return &PluginInfo{
+					FileName: itemName,
+					FilePath: potentialPluginDir,
+				}, nil
+			}
 		}
-		return nil, nil
+
+		return nil, nil // Continue searching
 	}
 
-	results, err := RecursiveDirSearch(dirPath, callback, nil, false)
+	results, err := RecursiveDirSearch(dirPath, callback, nil, false) // Find the first match
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("no .pm file matching plugin convention found")
 	}
 
-	if len(results) > 0 {
-		return results[0].(*PluginInfo), nil
-	}
-
-	return nil, fmt.Errorf("no .pm file found")
+	return results[0].(*PluginInfo), nil
 }
 
 func findKohaDir(rootPath string, excludedDirs []string) (string, error) {
@@ -167,7 +170,8 @@ func getPluginObject(searchPath string) (*KohaPluginMetadata, error) {
 	}
 
 	metadata := &KohaPluginMetadata{
-		PluginModulePath: pluginInfo.FileName,
+		PluginModuleFile: pluginInfo.FileName,
+		PluginModulePath: pluginInfo.FilePath,
 		KohaDirectory:    kohaPath,
 	}
 

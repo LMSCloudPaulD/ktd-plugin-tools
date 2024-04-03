@@ -149,7 +149,7 @@ func meta() error {
 		return fmt.Errorf("error finding plugin: %w", err)
 	}
 
-	fmt.Printf("plugin module path\t%s\nkoha directory\t%s\n", pluginMetadata.PluginModulePath, pluginMetadata.KohaDirectory)
+	fmt.Printf("plugin module file\t%s\nplugin module path\t%s\nkoha directory\t%s\n", pluginMetadata.PluginModuleFile, pluginMetadata.PluginModulePath, pluginMetadata.KohaDirectory)
 
 	return nil
 }
