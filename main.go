@@ -38,7 +38,7 @@ func main() {
 		Short: "Deploy commands",
 		Run: func(cmd *cobra.Command, args []string) {
 			if err := deploy(config, flags); err != nil {
-				fmt.Printf("Error deploying: %v\n", err)
+				fmt.Printf(error deploying: %v\n", err)
 				os.Exit(1)
 			}
 		},
@@ -50,7 +50,7 @@ func main() {
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			if err := bump(args); err != nil {
-				fmt.Printf("Error bumping: %v\n", err)
+				fmt.Printf(error bumping: %v\n", err)
 				os.Exit(1)
 			}
 		},
@@ -62,7 +62,7 @@ func main() {
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			if err := archive(); err != nil {
-				fmt.Printf("Error archiving: %v\n", err)
+				fmt.Printf(error archiving: %v\n", err)
 				os.Exit(1)
 			}
 		},
@@ -74,7 +74,7 @@ func main() {
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			if err := meta(); err != nil {
-				fmt.Printf("Error showing meta: %v\n", err)
+				fmt.Printf(error showing meta: %v\n", err)
 				os.Exit(1)
 			}
 		},
@@ -99,22 +99,22 @@ func main() {
 
 func deploy(config Config, flags Flags) error {
 	if err := initConfig(&config); err != nil {
-		return fmt.Errorf("Error initializing config: %w", err)
+		return fmt.Errorf("error initializing config: %w", err)
 	}
 
 	if flags.Copy {
 		if err := executeCommand(config.CopyCmd); err != nil {
-			return fmt.Errorf("Error executing copy command: %w", err)
+			return fmt.Errorf(error executing copy command: %w", err)
 		}
 	}
 	if flags.Install {
 		if err := executeCommand(config.InstallCmd); err != nil {
-			return fmt.Errorf("Error executing install command: %w", err)
+			return fmt.Errorf(error executing install command: %w", err)
 		}
 	}
 	if flags.Restart {
 		if err := executeCommand(config.RestartCmd); err != nil {
-			return fmt.Errorf("Error executing restart command: %w", err)
+			return fmt.Errorf(error executing restart command: %w", err)
 		}
 	}
 	return nil
@@ -126,7 +126,7 @@ func bump(args []string) error {
 	manager := &versioning.VersionManager{}
 	err := manager.BumpVersion("package.json", updateType)
 	if err != nil {
-		return fmt.Errorf("Error during version bump: %w", err)
+		return fmt.Errorf(error during version bump: %w", err)
 	}
 
 	return nil
@@ -136,7 +136,7 @@ func archive() error {
 	archiver := &archiving.Archiver{}
 	err := archiver.ArchiveFiles(`-v(\d+\.\d+\.\d+)\.kpz`, "archive")
 	if err != nil {
-		return fmt.Errorf("Error archiving files: %w", err)
+		return fmt.Errorf(error archiving files: %w", err)
 	}
 
 	return nil
@@ -146,7 +146,7 @@ func meta() error {
 	pluginFinder := &pluginfinder.PluginFinder{}
 	pluginMetadata, err := pluginFinder.Find(".")
 	if err != nil {
-		return fmt.Errorf("Error finding plugin: %w", err)
+		return fmt.Errorf(error finding plugin: %w", err)
 	}
 
 	fmt.Printf("plugin module path\t%s\nkoha directory\t%s\n", pluginMetadata.PluginModulePath, pluginMetadata.KohaDirectory)
@@ -159,7 +159,7 @@ func executeCommand(cmd string) error {
 
 	out, err := exec.Command("bash", "-c", cmd).CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("Error executing command: %v\nOutput was: %s", err, out)
+		return fmt.Errorf(error executing command: %v\nOutput was: %s", err, out)
 	}
 	fmt.Printf("Command output:\n%s\n", out)
 	return nil
@@ -169,7 +169,7 @@ func initConfig(config *Config) error {
 	viper.SetConfigName("deploy") // name of config file (without extension)
 	viper.AddConfigPath(".")      // look for config in the working directory
 	if err := viper.ReadInConfig(); err != nil {
-		return fmt.Errorf("Error reading config file: %w", err)
+		return fmt.Errorf(error reading config file: %w", err)
 	}
 
 	config.CopyCmd = viper.GetString("copyCmd")
