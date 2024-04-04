@@ -6,6 +6,7 @@ import (
 	"os/exec"
 
 	"github.com/LMSCloudPaulD/ktd-plugin-tools/pkg/archiving"
+	staticroutes "github.com/LMSCloudPaulD/ktd-plugin-tools/pkg/generation"
 	pluginfinder "github.com/LMSCloudPaulD/ktd-plugin-tools/pkg/meta"
 	"github.com/LMSCloudPaulD/ktd-plugin-tools/pkg/versioning"
 	"github.com/spf13/cobra"
@@ -80,6 +81,18 @@ func main() {
 		},
 	}
 
+	generate := &cobra.Command{
+		Use:   "generate",
+		Short: "Generate static routes",
+		Args:  cobra.NoArgs,
+		Run: func(cmd *cobra.Command, args []string) {
+			if err := generate(); err != nil {
+				fmt.Printf("error generating static routes: %v\n", err)
+				os.Exit(1)
+			}
+		},
+	}
+
 	rootCmd.AddCommand(deployCmd)
 	deployCmd.Flags().BoolVarP(&flags.Copy, "copy", "c", false, "Enable copy command")
 	deployCmd.Flags().BoolVarP(&flags.Install, "install", "i", false, "Enable install command")
@@ -90,6 +103,8 @@ func main() {
 	rootCmd.AddCommand(archiveCmd)
 
 	rootCmd.AddCommand(metaCmd)
+
+	rootCmd.AddCommand(generate)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -150,6 +165,16 @@ func meta() error {
 	}
 
 	fmt.Printf("plugin module file\t%s\nplugin module path\t%s\nkoha directory\t%s\n", pluginMetadata.PluginModuleFile, pluginMetadata.PluginModulePath, pluginMetadata.KohaDirectory)
+
+	return nil
+}
+
+func generate() error {
+	staticRoutesGenerator := &staticroutes.StaticRoutesGenerator{}
+	err := staticRoutesGenerator.Generate()
+	if err != nil {
+		return fmt.Errorf("error generating static routes: %w", err)
+	}
 
 	return nil
 }
